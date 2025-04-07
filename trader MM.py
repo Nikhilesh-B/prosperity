@@ -108,7 +108,7 @@ class Trader:
                 orders.append(Order(product, bid_price, bid_quantity))
 
             # SELL order (ask)
-            if ask_quantity > 0:
+            if ask_quantity < 0:
                 # volume is positive in your original code when you do SELL,
                 # but we store it as negative in the Order class
                 logger.print("SELL", str(ask_quantity) + "x", ask_price)
