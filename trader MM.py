@@ -41,7 +41,7 @@ class Trader:
             if best_bid is None or best_ask is None:
                 continue
 
-            mid_price = (best_bid + best_ask) / 2
+            mid_price = self.calculate_expected_price(order_depth)
             logger.print(
                 f"PRODUCT={product} | BEST_BID={best_bid} | BEST_ASK={best_ask} | MID={mid_price} | POS={current_position}")
 
@@ -117,6 +117,27 @@ class Trader:
         traderData = "SAMPLE"
         logger.flush(state, result, conversions, traderData)
         return result, conversions, traderData
+
+    def calculate_expected_price(self, order_depth: OrderDepth) -> float:
+        buy_orders = order_depth.buy_orders
+        sell_orders = order_depth.sell_orders
+
+        sum = 0
+        count = 0
+
+        for price, volume in buy_orders.items():
+            sum += price * abs(volume)
+            count += abs(volume)
+
+        for price, volume in sell_orders.items():
+            sum += price * abs(volume)
+            count += abs(volume)
+
+        if count == 0:
+            return 0
+
+        return sum / count
+
 
 class Logger:
     def __init__(self) -> None:
