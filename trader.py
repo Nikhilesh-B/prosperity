@@ -1,11 +1,13 @@
-from typing import Dict, List
+from typing import Dict, List, Tuple
 from datamodel import OrderDepth, TradingState, Order
 
 LIMIT_RAINFOREST_RESIN = 50
 LIMIT_KELP = 50
+LIMIT_SQUID_INK = 50
+
 
 class Trader:
-    def run(self, state: TradingState) -> Dict[str, List[Order]]:
+    def run(self, state: TradingState) -> Tuple[Dict[str, List[Order]], int, str]:
         """
         Only method required. It takes all buy and sell orders for all symbols as an input,
         and outputs a list of orders to be sent
@@ -19,6 +21,8 @@ class Trader:
                 limit = LIMIT_RAINFOREST_RESIN
             elif product == "KELP":
                 limit = LIMIT_KELP
+            elif product == "SQUID_INK":
+                limit = LIMIT_SQUID_INK
             else:
                 limit = 0
 
@@ -30,36 +34,37 @@ class Trader:
 
             expected_price = self.calculate_expected_price(order_depth)
 
-
-            current_position = state.position[product]
+            # Check if product exists in position dictionary
+            current_position = state.position.get(product, 0)
 
             # If statement checks if there are any SELL orders in the market
             if order_depth.sell_orders:
                 # Sort all the available sell orders by their price,
                 # and select only the sell order with the lowest price
-                sorted_sell_orders_prices = sorted(order_depth.sell_orders.keys(), reverse=True)
+                sorted_sell_orders_prices = sorted(
+                    order_depth.sell_orders.keys(), reverse=True)
                 for sell_order_price in sorted_sell_orders_prices:
-                    #volume when selling is negative
+                    # volume when selling is negative
                     volume = order_depth.sell_orders[sell_order_price]
                     if sell_order_price < expected_price and current_position + volume >= -limit:
                         print("BUY", str(-volume) + "x", sell_order_price)
-                        orders.append(Order(product, sell_order_price, -volume))
-                        
-            
+                        orders.append(
+                            Order(product, sell_order_price, -volume))
+
             # The below code block is similar to the one above,
             # the difference is that it find the highest bid (buy order)
             # If the price of the order is higher than the fair value
             # This is an opportunity to sell at a premium
             if order_depth.buy_orders:
-                sorted_buy_orders_prices = sorted(order_depth.buy_orders.keys())
+                sorted_buy_orders_prices = sorted(
+                    order_depth.buy_orders.keys())
 
                 for buy_order_price in sorted_buy_orders_prices:
                     volume = order_depth.buy_orders[buy_order_price]
-                    #volume when buying is positive
+                    # volume when buying is positive
                     if buy_order_price > expected_price and current_position + volume <= limit:
                         print("SELL", str(volume) + "x", buy_order_price)
                         orders.append(Order(product, buy_order_price, volume))
-
 
             # Add all the above the orders to the result dict
             result[product] = orders
@@ -83,6 +88,10 @@ class Trader:
         count = 0
 
         for price, volume in buy_orders.items():
+            sum += price * abs(volume)
+            count += abs(volume)
+
+        for price, volume in sell_orders.items():
             sum += price * abs(volume)
             count += abs(volume)
 
