@@ -38,10 +38,9 @@ class Trader:
             # Check if product exists in position dictionary
             current_position = state.position.get(product, 0)
 
-            # If statement checks if there are any SELL orders in the market
+            logger.print("EXPECTED PRICE", expected_price)
+
             if order_depth.sell_orders:
-                # Sort all the available sell orders by their price,
-                # and select only the sell order with the lowest price
                 sorted_sell_orders_prices = sorted(
                     order_depth.sell_orders.keys(), reverse=True)
                 for sell_order_price in sorted_sell_orders_prices:
@@ -53,10 +52,6 @@ class Trader:
                         orders.append(
                             Order(product, sell_order_price, -volume))
 
-            # The below code block is similar to the one above,
-            # the difference is that it find the highest bid (buy order)
-            # If the price of the order is higher than the fair value
-            # This is an opportunity to sell at a premium
             if order_depth.buy_orders:
                 sorted_buy_orders_prices = sorted(
                     order_depth.buy_orders.keys())
@@ -75,7 +70,7 @@ class Trader:
         # String value holding Trader state data required. It will be delivered as TradingState.traderData on next execution.
         traderData = "SAMPLE"
 
-        conversions = 1
+        conversions = 0
 
         # Return the dict of orders
         # These possibly contain buy or sell orders
