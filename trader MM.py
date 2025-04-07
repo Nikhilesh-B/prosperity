@@ -71,6 +71,10 @@ class Trader:
             bid_price = mid_price - half_spread - position_skew
             ask_price = mid_price + half_spread - position_skew
 
+            # Round bid and ask to integers
+            bid_price = int(bid_price)
+            ask_price = int(ask_price)
+
             # ------------------------
             # 3) Quote sizes
             # We'll define a base size. Then we'll ensure we don't exceed the limit
