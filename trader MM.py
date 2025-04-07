@@ -71,11 +71,6 @@ class Trader:
             bid_price = mid_price - half_spread - position_skew
             ask_price = mid_price + half_spread - position_skew
 
-            # Convert prices to integers (assuming that’s required by your system).
-            # Or you could keep them as floats if allowed.
-            bid_price = int(round(bid_price))
-            ask_price = int(round(ask_price))
-
             # ------------------------
             # 3) Quote sizes
             # We'll define a base size. Then we'll ensure we don't exceed the limit
