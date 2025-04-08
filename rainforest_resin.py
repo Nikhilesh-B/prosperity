@@ -42,7 +42,7 @@ class Trader:
 
             buys_sorted = sorted(list(order_depth.buy_orders.keys()))
             sells_sorted = sorted(
-                list(order_depth.sell_orders.keys()), reversed=True)
+                list(order_depth.sell_orders.keys()), reverse=True)
 
             our_buy_price = 9999
             our_sell_price = 10001
