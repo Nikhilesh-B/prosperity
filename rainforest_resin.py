@@ -40,30 +40,27 @@ class Trader:
             if not order_depth.buy_orders or not order_depth.sell_orders:
                 continue
 
-            bids = list(order_depth.buy_orders.keys())
-            asks = list(order_depth.sell_orders.keys())
+            buys_sorted = sorted(list(order_depth.buy_orders.keys()))
+            sells_sorted = sorted(
+                list(order_depth.sell_orders.keys()), reversed=True)
 
-            # sort the bids and asks in descending order
-            bids.sort()
-            asks.sort(reverse=True)
-
-            purchase_price = 9998
-            sell_price = 10002
+            our_buy_price = 9999
+            our_sell_price = 10001
 
             orders = []
 
-            for sell_order_price in asks:
+            for sell_order_price in sells_sorted:
                 volume = order_depth.sell_orders[sell_order_price]
-                if sell_order_price > sell_price and current_position + volume >= -limit:
-                    logger.print("SELL", str(-volume) +
+                if sell_order_price <= our_buy_price and current_position + volume <= limit:
+                    logger.print("BUY", str(volume) +
                                  "x", sell_order_price)
                     orders.append(
                         Order(product, sell_order_price, -volume))
 
-            for buy_order_price in bids:
+            for buy_order_price in buys_sorted:
                 volume = order_depth.buy_orders[buy_order_price]
-                if buy_order_price < purchase_price and current_position + volume <= limit:
-                    logger.print("BUY", str(volume) +
+                if buy_order_price >= our_sell_price and current_position + volume >= -limit:
+                    logger.print("SELL", str(volume) +
                                  "x", buy_order_price)
                     orders.append(
                         Order(product, buy_order_price, volume))
