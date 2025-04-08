@@ -17,65 +17,62 @@ class Trader:
         result = {}
 
         # Iterate over all the keys (the available products) contained in the order dephts
-        for product in state.order_depths.keys():
+        result: Dict[str, List[Order]] = {}
+        for product, order_depth in state.order_depths.items():
+            # Identify an absolute inventory limit for this product
+
+            # onlt operating with Rainforest Resin right now! Keeping it to Rainforest resin;
             if product == "RAINFOREST_RESIN":
                 limit = LIMIT_RAINFOREST_RESIN
             elif product == "KELP":
                 limit = LIMIT_KELP
+                continue
             elif product == "SQUID_INK":
                 limit = LIMIT_SQUID_INK
+                continue
             else:
+                # If some other product appears, skip for now
                 limit = 0
 
-            # Retrieve the Order Depth containing all the market BUY and SELL orders
-            order_depth: OrderDepth = state.order_depths[product]
-
-            # Initialize the list of Orders to be sent as an empty list
-            orders: list[Order] = []
-
-            expected_price = self.calculate_expected_price(order_depth)
-
-            # Check if product exists in position dictionary
             current_position = state.position.get(product, 0)
 
-            logger.print("EXPECTED PRICE", expected_price)
+            # We need both buy_orders and sell_orders to determine a mid-price
+            if not order_depth.buy_orders or not order_depth.sell_orders:
+                continue
 
-            if order_depth.sell_orders:
-                sorted_sell_orders_prices = sorted(
-                    order_depth.sell_orders.keys(), reverse=True)
-                for sell_order_price in sorted_sell_orders_prices:
-                    # volume when selling is negative
-                    volume = order_depth.sell_orders[sell_order_price]
-                    if sell_order_price < expected_price and current_position + volume >= -limit:
-                        logger.print("SELL", str(-volume) +
-                                     "x", sell_order_price)
-                        orders.append(
-                            Order(product, sell_order_price, -volume))
+            bids = list(order_depth.buy_orders.keys())
+            asks = list(order_depth.sell_orders.keys())
 
-            if order_depth.buy_orders:
-                sorted_buy_orders_prices = sorted(
-                    order_depth.buy_orders.keys())
+            # sort the bids and asks in descending order
+            bids.sort()
+            asks.sort(reverse=True)
 
-                for buy_order_price in sorted_buy_orders_prices:
-                    volume = order_depth.buy_orders[buy_order_price]
-                    # volume when buying is positive
-                    if buy_order_price > expected_price and current_position + volume <= limit:
-                        logger.print("BUY", str(volume) +
-                                     "x", buy_order_price)
-                        orders.append(Order(product, buy_order_price, volume))
+            purchase_price = 9998
+            sell_price = 10002
 
-            # Add all the above the orders to the result dict
+            orders = []
+
+            for sell_order_price in asks:
+                volume = order_depth.sell_orders[sell_order_price]
+                if sell_order_price > sell_price and current_position + volume >= -limit:
+                    logger.print("SELL", str(-volume) +
+                                 "x", sell_order_price)
+                    orders.append(
+                        Order(product, sell_order_price, -volume))
+
+            for buy_order_price in bids:
+                volume = order_depth.buy_orders[buy_order_price]
+                if buy_order_price < purchase_price and current_position + volume <= limit:
+                    logger.print("BUY", str(volume) +
+                                 "x", buy_order_price)
+                    orders.append(
+                        Order(product, buy_order_price, volume))
+
             result[product] = orders
 
-        # String value holding Trader state data required. It will be delivered as TradingState.traderData on next execution.
-        traderData = "SAMPLE"
-
+        # No conversions in this example
         conversions = 0
-
-        # Return the dict of orders
-        # These possibly contain buy or sell orders
-        # Depending on the logic above
-
+        traderData = "SAMPLE"
         logger.flush(state, result, conversions, traderData)
         return result, conversions, traderData
 
