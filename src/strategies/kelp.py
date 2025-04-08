@@ -61,35 +61,59 @@ class Trader:
                     orders.append(
                         Order(product, sell_order_price, -volume))
 
-            for buy_order_price in buy_orders_sorted:
-                volume = order_depth.buy_orders[buy_order_price]
-                # Only sell if we have previously purchased at a lower price
-                if product in ph.purchases:
-                    # Look through our purchase history for this product
-                    for purchase_price, purchase_quantity in ph.purchases[product].items():
-                        # Only sell if we would make a profit and have inventory to sell
-                        if buy_order_price > purchase_price and purchase_quantity > 0:
+            # This would be a ford fulkerson matching algorithm type approach if we didn't run these together 
+
+            if product in ph.purchases:
+                # Sort purchase history by price ascending
+                purchase_prices = sorted(ph.purchases[product].keys())
+                purchase_idx = 0
+                buy_idx = 0
+
+                # Two pointer approach to match purchases with current buy orders
+                while purchase_idx < len(purchase_prices) and buy_idx < len(buy_orders_sorted):
+                    purchase_price = purchase_prices[purchase_idx]
+                    buy_price = buy_orders_sorted[buy_idx]
+                    
+                    # Only sell if we would make a profit
+                    if buy_price > purchase_price:
+                        purchase_quantity = ph.purchases[product][purchase_price]
+                        buy_volume = order_depth.buy_orders[buy_price]
+                        
+                        # Only proceed if we have inventory to sell
+                        if purchase_quantity > 0:
                             # Sell the minimum of what they want to buy and what we have
-                            sell_quantity = min(volume, purchase_quantity)
+                            sell_quantity = min(buy_volume, purchase_quantity)
+                            
                             if current_position - sell_quantity >= -limit:
-                                logger.print("SELL", str(sell_quantity) + "x", buy_order_price)
+                                logger.print("SELL", str(sell_quantity) + "x", buy_price)
                                 ph.remove_purchases(product, purchase_price, sell_quantity)
-                                orders.append(Order(product, buy_order_price, -sell_quantity))
-                                volume -= sell_quantity # Update remaining volume to fill
-                                if volume == 0:
-                                    break
+                                orders.append(Order(product, buy_price, -sell_quantity))
+                                
+                                # Update the remaining volume for this buy order
+                                order_depth.buy_orders[buy_price] -= sell_quantity
+                                
+                                # If buy order is fully filled, move to next one
+                                if order_depth.buy_orders[buy_price] == 0:
+                                    buy_idx += 1
+                                # If we sold all inventory at this price, move to next purchase price    
+                                if ph.purchases[product][purchase_price] == 0:
+                                    purchase_idx += 1
+                            else:
+                                # Hit position limit, stop selling
+                                break
+                        else:
+                            # No inventory at this price, move to next purchase price
+                            purchase_idx += 1
+                    else:
+                        # Current buy price not profitable, move to next buy order
+                        buy_idx += 1
 
 
-
-
-
+            traderData = ph.to_json_string()
             result[product] = orders
-
-
 
         # No conversions in this example
         conversions = 0
-        traderData = "SAMPLE"
         logger.flush(state, result, conversions, traderData)
         return result, conversions, traderData
 
