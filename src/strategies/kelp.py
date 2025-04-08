@@ -13,8 +13,6 @@ class Trader:
         Only method required. It takes all buy and sell orders for all symbols as an input,
         and outputs a list of orders to be sent
         """
-        # Initialize the method output dict as an empty dict
-        result = {}
 
         # Iterate over all the keys (the available products) contained in the order dephts
         result: Dict[str, List[Order]] = {}
@@ -40,30 +38,27 @@ class Trader:
             if not order_depth.buy_orders or not order_depth.sell_orders:
                 continue
 
-            buys_sorted = sorted(list(order_depth.buy_orders.keys()))
-            sells_sorted = sorted(
-                list(order_depth.sell_orders.keys()), reverse=True)
+            ph = PurchaseHistory.from_json_string(state.traderData)
 
-            our_buy_price = 9999
-            our_sell_price = 10001
+            buy_orders_sorted = sorted(
+                list(order_depth.buy_orders.keys()), reverse=True)
+            sell_orders_sorted = sorted(
+                list(order_depth.sell_orders.keys()))
 
+            expected_price = self.calculate_expected_price(
+                order_depth=order_depth)
             orders = []
 
-            for sell_order_price in sells_sorted:
+            # you have some statistical understanding of the expected price that is changing over time
+            # as that statical price changes over time we will then buy opportunistically any products that may be far below what we potentially percieve the market value
+            for sell_order_price in sell_orders_sorted:
                 volume = order_depth.sell_orders[sell_order_price]
-                if sell_order_price <= our_buy_price and current_position + volume <= limit:
+                if sell_order_price < expected_price and current_position + volume <= limit:
                     logger.print("BUY", str(volume) +
                                  "x", sell_order_price)
+                    ph.add_purchase(symbol=product, price=sell_order_price, quantity=)
                     orders.append(
                         Order(product, sell_order_price, -volume))
-
-            for buy_order_price in buys_sorted:
-                volume = order_depth.buy_orders[buy_order_price]
-                if buy_order_price >= our_sell_price and current_position + volume >= -limit:
-                    logger.print("SELL", str(volume) +
-                                 "x", buy_order_price)
-                    orders.append(
-                        Order(product, buy_order_price, volume))
 
             result[product] = orders
 
@@ -92,6 +87,49 @@ class Trader:
             return 0
 
         return sum / count
+
+
+class PurchaseHistory:
+    def __init__(self) -> None:
+        self.purchases: Dict[Dict[int, int]] = {}
+
+    def add_purchase(self, symbol: str, price: int, quantity: int) -> None:
+        if symbol not in self.purchases:
+            self.purchases[symbol] = {}
+
+        if price not in self.purchases[symbol]:
+            self.purchases[symbol][price] = quantity
+        else:
+            self.purchases[symbol][price] += quantity
+
+    def remove_purchases(self, symbol: str, og_purchase_price: int, quantity: int) -> None:
+        if symbol not in self.purchases:
+            raise ValueError('symbol not in purchase history')
+
+        if og_purchase_price not in self.purchases[symbol]:
+            raise ValueError('purchase price not found in history')
+
+        if self.purchases[symbol][og_purchase_price] < quantity:
+            raise ValueError('not enough quantity at that price to remove')
+
+        self.purchases[symbol][og_purchase_price] -= quantity
+
+        if self.purchases[symbol][og_purchase_price] == 0:
+            del self.purchases[symbol][og_purchase_price]
+
+        if not self.purchases[symbol]:
+            del self.purchases[symbol]
+
+    def to_json_string(self):
+        return json.dumps({"purchases": self.purchases})
+
+    # Create from JSON string (class method)
+    @classmethod
+    def from_json_string(cls, json_string):
+        data = json.loads(json_string)
+        ph = cls()
+        ph.purchases = data.get("purchases", {})
+        return ph
 
 
 class Logger:

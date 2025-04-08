@@ -51,19 +51,21 @@ class Trader:
 
             for sell_order_price in sells_sorted:
                 volume = order_depth.sell_orders[sell_order_price]
-                if sell_order_price <= our_buy_price and current_position + volume <= limit:
-                    logger.print("BUY", str(volume) +
+                #volume is negative 
+                if sell_order_price <= our_buy_price and current_position - volume <= limit:
+                    logger.print("BUY", str(-volume) +
                                  "x", sell_order_price)
                     orders.append(
                         Order(product, sell_order_price, -volume))
 
             for buy_order_price in buys_sorted:
                 volume = order_depth.buy_orders[buy_order_price]
-                if buy_order_price >= our_sell_price and current_position + volume >= -limit:
+                #volume is positive
+                if buy_order_price >= our_sell_price and current_position - volume >= -limit:
                     logger.print("SELL", str(volume) +
                                  "x", buy_order_price)
                     orders.append(
-                        Order(product, buy_order_price, volume))
+                        Order(product, buy_order_price, -volume))
 
             result[product] = orders
 
