@@ -1,5 +1,5 @@
 from typing import Dict, List, Tuple, Any
-from datamodel import OrderDepth, TradingState, Order, Listing, Observation, ProsperityEncoder, Symbol, Trade
+from src.model.datamodel import OrderDepth, TradingState, Order, Listing, Observation, ProsperityEncoder, Symbol, Trade
 import json
 
 LIMIT_RAINFOREST_RESIN = 50
@@ -17,7 +17,9 @@ class Trader:
         result = {}
 
         # Iterate over all the keys (the available products) contained in the order dephts
-        for product in state.order_depths.keys():
+        result: Dict[str, List[Order]] = {}
+        for product, order_depth in state.order_depths.items():
+            # Identify an absolute inventory limit for this product
             if product == "RAINFOREST_RESIN":
                 limit = LIMIT_RAINFOREST_RESIN
             elif product == "KELP":
@@ -25,57 +27,98 @@ class Trader:
             elif product == "SQUID_INK":
                 limit = LIMIT_SQUID_INK
             else:
+                # If some other product appears, skip for now
                 limit = 0
 
-            # Retrieve the Order Depth containing all the market BUY and SELL orders
-            order_depth: OrderDepth = state.order_depths[product]
-
-            # Initialize the list of Orders to be sent as an empty list
-            orders: list[Order] = []
-
-            expected_price = self.calculate_expected_price(order_depth)
-
-            # Check if product exists in position dictionary
             current_position = state.position.get(product, 0)
 
-            logger.print("EXPECTED PRICE", expected_price)
+            # We need both buy_orders and sell_orders to determine a mid-price
+            if not order_depth.buy_orders or not order_depth.sell_orders:
+                continue
 
-            if order_depth.sell_orders:
-                sorted_sell_orders_prices = sorted(
-                    order_depth.sell_orders.keys())
-                for sell_order_price in sorted_sell_orders_prices:
-                    # volume when selling is negative
-                    volume = order_depth.sell_orders[sell_order_price]
-                    if sell_order_price < expected_price and current_position + volume <= limit:
-                        logger.print("BUY", str(volume) +
-                                     "x", sell_order_price)
-                        orders.append(
-                            Order(product, sell_order_price, -volume))
+            best_bid = max(order_depth.buy_orders.keys())   # highest buy price
+            best_ask = min(order_depth.sell_orders.keys())  # lowest sell price
+            if best_bid is None or best_ask is None:
+                continue
 
-            if order_depth.buy_orders:
-                sorted_buy_orders_prices = sorted(
-                    order_depth.buy_orders.keys(), reverse=True)
+            mid_price = self.calculate_expected_price(order_depth)
+            logger.print(
+                f"PRODUCT={product} | BEST_BID={best_bid} | BEST_ASK={best_ask} | MID={mid_price} | POS={current_position}")
 
-                for buy_order_price in sorted_buy_orders_prices:
-                    volume = order_depth.buy_orders[buy_order_price]
-                    # volume when buying is positive
-                    if buy_order_price > expected_price and current_position + volume >= -limit:
-                        logger.print("SELL", str(-volume) +
-                                     "x", buy_order_price)
-                        orders.append(Order(product, buy_order_price, volume))
+            # ------------------------
+            # 1) Choose a percentage-based spread
+            #    e.g. 0.2% (0.002) or 0.5% (0.005), etc.
+            # ------------------------
+            spread_percent = 0.005   # 0.2% of the mid price
+            base_spread = mid_price * spread_percent
+            half_spread = base_spread / 2
 
-            # Add all the above the orders to the result dict
+            # ------------------------
+            # 2) Position-based skew
+            #
+            # We push quotes up/down if we are long/short to reduce
+            # the chance of increasing a big position. We'll scale
+            # the skew by how close we are to the limit.
+            # ------------------------
+            # position ratio in [-1, +1]
+            position_ratio = current_position / limit if limit > 0 else 0
+
+            # Multiply by half_spread to shift quotes.
+            # A positive 'position_ratio' => we're long => shift quotes downward (less buying).
+            # If mid_price is large, the skew is bigger in absolute terms.
+            position_skew = position_ratio * half_spread
+
+            bid_price = mid_price - half_spread - position_skew
+            ask_price = mid_price + half_spread - position_skew
+
+            # Round bid and ask to integers
+            bid_price = int(bid_price)
+            ask_price = int(ask_price)
+
+            # ------------------------
+            # 3) Quote sizes
+            # We'll define a base size. Then we'll ensure we don't exceed the limit
+            # if we get fully filled.
+            # ------------------------
+            base_quote_size = 10
+
+            # If near or at the long limit, reduce or skip bidding
+            if current_position >= limit:
+                bid_quantity = 0
+            else:
+                max_buyable = limit - current_position
+                bid_quantity = min(base_quote_size, max_buyable)
+
+            # If near or at the short limit, reduce or skip asking
+            if current_position <= -limit:
+                ask_quantity = 0
+            else:
+                # how many we can sell before hitting -limit
+                max_sellable = -limit + current_position
+                ask_quantity = -max(base_quote_size, max_sellable)
+
+            # ------------------------
+            # 4) Create your two-sided quotes (if size > 0)
+            # ------------------------
+            # BUY order (bid)
+            orders = []
+            if bid_quantity > 0:
+                # volume is positive for a BUY
+                logger.print("BUY", str(bid_quantity) + "x", bid_price)
+                orders.append(Order(product, bid_price, bid_quantity))
+
+            # SELL order (ask)
+            if ask_quantity < 0:
+                # volume is positive in your original code when you do SELL,
+                # but we store it as negative in the Order class
+                logger.print("SELL", str(ask_quantity) + "x", ask_price)
+                orders.append(Order(product, ask_price, -ask_quantity))
+
             result[product] = orders
 
-        # String value holding Trader state data required. It will be delivered as TradingState.traderData on next execution.
-        traderData = "SAMPLE"
-
+        # No conversions in this example
         conversions = 0
-
-        # Return the dict of orders
-        # These possibly contain buy or sell orders
-        # Depending on the logic above
-
+        traderData = "SAMPLE"
         logger.flush(state, result, conversions, traderData)
         return result, conversions, traderData
 

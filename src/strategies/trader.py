@@ -1,5 +1,5 @@
 from typing import Dict, List, Tuple, Any
-from datamodel import OrderDepth, TradingState, Order, Listing, Observation, ProsperityEncoder, Symbol, Trade
+from src.model.datamodel import OrderDepth, TradingState, Order, Listing, Observation, ProsperityEncoder, Symbol, Trade
 import json
 
 LIMIT_RAINFOREST_RESIN = 50
@@ -17,59 +17,65 @@ class Trader:
         result = {}
 
         # Iterate over all the keys (the available products) contained in the order dephts
-        result: Dict[str, List[Order]] = {}
-        for product, order_depth in state.order_depths.items():
-            # Identify an absolute inventory limit for this product
-
-            # onlt operating with Rainforest Resin right now! Keeping it to Rainforest resin;
+        for product in state.order_depths.keys():
             if product == "RAINFOREST_RESIN":
                 limit = LIMIT_RAINFOREST_RESIN
             elif product == "KELP":
                 limit = LIMIT_KELP
-                continue
             elif product == "SQUID_INK":
                 limit = LIMIT_SQUID_INK
-                continue
             else:
-                # If some other product appears, skip for now
                 limit = 0
 
+            # Retrieve the Order Depth containing all the market BUY and SELL orders
+            order_depth: OrderDepth = state.order_depths[product]
+
+            # Initialize the list of Orders to be sent as an empty list
+            orders: list[Order] = []
+
+            expected_price = self.calculate_expected_price(order_depth)
+
+            # Check if product exists in position dictionary
             current_position = state.position.get(product, 0)
 
-            # We need both buy_orders and sell_orders to determine a mid-price
-            if not order_depth.buy_orders or not order_depth.sell_orders:
-                continue
+            logger.print("EXPECTED PRICE", expected_price)
 
-            buys_sorted = sorted(list(order_depth.buy_orders.keys()))
-            sells_sorted = sorted(
-                list(order_depth.sell_orders.keys()), reverse=True)
+            if order_depth.sell_orders:
+                sorted_sell_orders_prices = sorted(
+                    order_depth.sell_orders.keys())
+                for sell_order_price in sorted_sell_orders_prices:
+                    # volume when selling is negative
+                    volume = order_depth.sell_orders[sell_order_price]
+                    if sell_order_price < expected_price and current_position + volume <= limit:
+                        logger.print("BUY", str(volume) +
+                                     "x", sell_order_price)
+                        orders.append(
+                            Order(product, sell_order_price, -volume))
 
-            our_buy_price = 9999
-            our_sell_price = 10001
+            if order_depth.buy_orders:
+                sorted_buy_orders_prices = sorted(
+                    order_depth.buy_orders.keys(), reverse=True)
 
-            orders = []
+                for buy_order_price in sorted_buy_orders_prices:
+                    volume = order_depth.buy_orders[buy_order_price]
+                    # volume when buying is positive
+                    if buy_order_price > expected_price and current_position + volume >= -limit:
+                        logger.print("SELL", str(-volume) +
+                                     "x", buy_order_price)
+                        orders.append(Order(product, buy_order_price, volume))
 
-            for sell_order_price in sells_sorted:
-                volume = order_depth.sell_orders[sell_order_price]
-                if sell_order_price <= our_buy_price and current_position + volume <= limit:
-                    logger.print("BUY", str(volume) +
-                                 "x", sell_order_price)
-                    orders.append(
-                        Order(product, sell_order_price, -volume))
-
-            for buy_order_price in buys_sorted:
-                volume = order_depth.buy_orders[buy_order_price]
-                if buy_order_price >= our_sell_price and current_position + volume >= -limit:
-                    logger.print("SELL", str(volume) +
-                                 "x", buy_order_price)
-                    orders.append(
-                        Order(product, buy_order_price, volume))
-
+            # Add all the above the orders to the result dict
             result[product] = orders
 
-        # No conversions in this example
-        conversions = 0
+        # String value holding Trader state data required. It will be delivered as TradingState.traderData on next execution.
         traderData = "SAMPLE"
+
+        conversions = 0
+
+        # Return the dict of orders
+        # These possibly contain buy or sell orders
+        # Depending on the logic above
+
         logger.flush(state, result, conversions, traderData)
         return result, conversions, traderData
 
