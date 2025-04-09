@@ -67,7 +67,7 @@ class Trader:
 
             # This would be a ford fulkerson matching algorithm type approach if we didn't run these together
 
-            if product in ph.purchases:
+            if product in ph.purchases: 
                 # Sort purchase history by price ascending
                 purchase_prices = sorted(ph.purchases[product].keys())
                 purchase_idx = 0
@@ -75,7 +75,7 @@ class Trader:
 
                 # Two pointer approach to match purchases with current buy orders
                 while purchase_idx < len(purchase_prices) and buy_idx < len(buy_orders_sorted):
-                    purchase_price = purchase_prices[purchase_idx]
+                    purchase_price = int(purchase_prices[purchase_idx])
                     buy_price = buy_orders_sorted[buy_idx]
 
                     # Only sell if we would make a profit
@@ -150,34 +150,44 @@ class Trader:
 
 class PurchaseHistory:
     def __init__(self) -> None:
-        self.purchases: Dict[Dict[int, int]] = {}
+        self.purchases: Dict[Dict[str, Dict[int, int]]] = {}
 
-    def add_purchase(self, symbol: str, price: int, quantity: int) -> None:
-        if symbol not in self.purchases:
-            self.purchases[symbol] = {}
+    def add_purchase(self, product: str, symbol: str, price: int, quantity: int) -> None:
+        if product not in self.purchases:
+            self.purchases[product] = {}
 
-        if price not in self.purchases[symbol]:
-            self.purchases[symbol][price] = quantity
+        if symbol not in self.purchases[product]:
+            self.purchases[product][symbol] = {}
+
+        if price not in self.purchases[product][symbol]:
+            self.purchases[product][symbol][price] = quantity
         else:
-            self.purchases[symbol][price] += quantity
+            self.purchases[product][symbol][price] += quantity
 
-    def remove_purchases(self, symbol: str, og_purchase_price: int, quantity: int) -> None:
+    def remove_purchases(self, product: str, symbol: str, og_purchase_price: int, quantity: int) -> None:
+        if product not in self.purchases:
+            raise ValueError('product not in purchase history')
+
         if symbol not in self.purchases:
             raise ValueError('symbol not in purchase history')
 
         if og_purchase_price not in self.purchases[symbol]:
             raise ValueError('purchase price not found in history')
 
-        if self.purchases[symbol][og_purchase_price] < quantity:
+        if self.purchases[product][symbol][og_purchase_price] < quantity:
             raise ValueError('not enough quantity at that price to remove')
 
-        self.purchases[symbol][og_purchase_price] -= quantity
+        self.purchases[product][symbol][og_purchase_price] -= quantity
 
-        if self.purchases[symbol][og_purchase_price] == 0:
-            del self.purchases[symbol][og_purchase_price]
+        if self.purchases[product][symbol][og_purchase_price] == 0:
+            del self.purchases[product][symbol][og_purchase_price]
 
-        if not self.purchases[symbol]:
-            del self.purchases[symbol]
+        if not self.purchases[product][symbol]:
+            del self.purchases[product][symbol]
+
+        if not self.purchases[product]:
+            del self.purchases[product]
+
 
     def to_json_string(self):
         return json.dumps({"purchases": self.purchases})
