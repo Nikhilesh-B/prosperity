@@ -176,7 +176,7 @@ class Trader:
 
         # No conversions in this example
         conversions = 0
-        # logger.flush(state, result, conversions, traderData)
+        logger.flush(state, result, conversions, traderData)
         return result, conversions, traderData
 
     def calculate_expected_price(self, order_depth: OrderDepth) -> float:
