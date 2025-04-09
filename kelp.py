@@ -1,5 +1,5 @@
 from typing import Dict, List, Tuple, Any
-from src.model.datamodel import OrderDepth, TradingState, Order, Listing, Observation, ProsperityEncoder, Symbol, Trade
+from datamodel import OrderDepth, TradingState, Order, Listing, Observation, ProsperityEncoder, Symbol, Trade
 import json
 
 LIMIT_RAINFOREST_RESIN = 50
@@ -28,7 +28,6 @@ class Trader:
             elif product == "SQUID_INK":
                 limit = LIMIT_SQUID_INK
                 continue
-
             else:
                 # If some other product appears, skip for now
                 limit = 0
@@ -39,10 +38,13 @@ class Trader:
             if not order_depth.buy_orders or not order_depth.sell_orders:
                 continue
 
-            ph = PurchaseHistory.from_json_string(state.traderData)
+            if not state.traderData:
+                ph = PurchaseHistory.from_json_string('{}')
+            else:
+                ph = PurchaseHistory.from_json_string(state.traderData)
 
             buy_orders_sorted = sorted(
-                list(order_depth.buy_orders.keys()), reverse=True)
+                list(order_depth.buy_orders.keys()))
             sell_orders_sorted = sorted(
                 list(order_depth.sell_orders.keys()))
 
@@ -77,6 +79,10 @@ class Trader:
                     buy_price = buy_orders_sorted[buy_idx]
 
                     # Only sell if we would make a profit
+                    assert type(buy_price) == int
+                    print(purchase_prices)
+                    assert type(purchase_price) == int
+
                     if buy_price > purchase_price:
                         purchase_quantity = ph.purchases[product][purchase_price]
                         buy_volume = order_depth.buy_orders[buy_price]
@@ -122,11 +128,6 @@ class Trader:
         return result, conversions, traderData
 
     def calculate_expected_price(self, order_depth: OrderDepth) -> float:
-        # First try to use purchase history if available
-        if hasattr(self, 'purchase_history') and self.purchase_history.purchases:
-            return self.purchase_history.average_price
-
-        # Fall back to order book prices if no purchase history
         buy_orders = order_depth.buy_orders
         sell_orders = order_depth.sell_orders
 
