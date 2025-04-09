@@ -1,183 +1,228 @@
 from typing import Dict, List, Tuple, Any
 from datamodel import OrderDepth, TradingState, Order, Listing, Observation, ProsperityEncoder, Symbol, Trade
-import json
+import jsonpickle
 
 LIMIT_RAINFOREST_RESIN = 50
 LIMIT_KELP = 50
 LIMIT_SQUID_INK = 50
 
 
+class PRODUCTS:
+    RAINFOREST_RESIN = "RAINFOREST_RESIN"
+    KELP = "KELP"
+    SQUID_INK = "SQUID_INK"
+
+
+PARAMS = {
+    PRODUCTS.RAINFOREST_RESIN: {
+    },
+    PRODUCTS.KELP: {
+    },
+    PRODUCTS.SQUID_INK: {
+    },
+}
+
+
+class PurchaseHistory:
+    def __init__(self) -> None:
+        self.purchases: Dict[str, Dict[int, int]] = {}
+
+    def add_purchase(self, product: str, price: int, quantity: int) -> None:
+        if product not in self.purchases:
+            self.purchases[product] = {}
+
+        if price not in self.purchases[product]:
+            self.purchases[product][price] = quantity
+        else:
+            self.purchases[product][price] += quantity
+
+    def remove_purchases(self, product: str, og_purchase_price: int, quantity: int) -> None:
+        if product not in self.purchases:
+            raise ValueError('product not in purchase history')
+
+        if og_purchase_price not in self.purchases[product]:
+            raise ValueError('purchase price not found in history')
+
+        if self.purchases[product][og_purchase_price] < quantity:
+            raise ValueError('not enough quantity at that price to remove')
+
+        self.purchases[product][og_purchase_price] -= quantity
+
+        if self.purchases[product][og_purchase_price] == 0:
+            del self.purchases[product][og_purchase_price]
+
+        if not self.purchases[product]:
+            del self.purchases[product]
+
+
+class TraderDataObject:
+    def __init__(self) -> None:
+        self.purchase_history = PurchaseHistory()
+        # Add other history fields here as needed
+
+    def to_json_string(self):
+        return jsonpickle.encode(self)
+
+    @classmethod
+    def from_json_string(cls, json_string):
+        if not json_string:
+            return cls()
+        return jsonpickle.decode(json_string)
+
+
 class Trader:
+    def __init__(self):
+        self.LIMITS = {
+            PRODUCTS.RAINFOREST_RESIN: LIMIT_RAINFOREST_RESIN,
+            PRODUCTS.KELP: LIMIT_KELP,
+            PRODUCTS.SQUID_INK: LIMIT_SQUID_INK,
+        }
+
     def run(self, state: TradingState) -> Tuple[Dict[str, List[Order]], int, str]:
         """
         Only method required. It takes all buy and sell orders for all symbols as an input,
         and outputs a list of orders to be sent
         """
+        if state.traderData:
+            traderDataObject = TraderDataObject.from_json_string(state.traderData)
+        else:
+            traderDataObject = TraderDataObject()
 
         # Iterate over all the keys (the available products) contained in the order dephts
         result: Dict[str, List[Order]] = {}
 
-        if not state.traderData:
-            purchase_history = PurchaseHistory.from_json_string('{}')
-        else:
-            purchase_history = PurchaseHistory.from_json_string(
-                state.traderData)
+        purchase_history = traderDataObject.purchase_history
 
         for product, order_depth in state.order_depths.items():
-            # Identify an absolute inventory limit for this product
-
-            # onlt operating with Rainforest Resin right now! Keeping it to Rainforest resin;
-            if product == "RAINFOREST_RESIN":
-                limit = LIMIT_RAINFOREST_RESIN
-            elif product == "KELP":
-                limit = LIMIT_KELP
-            elif product == "SQUID_INK":
-                limit = LIMIT_SQUID_INK
-            else:
-                limit = 0
-
-            if product == "RAINFOREST_RESIN":
-                # onlt operating with Rainforest Resin right now! Keeping it to Rainforest resin;
-
-                current_position = state.position.get(product, 0)
-
-                # We need both buy_orders and sell_orders to determine a mid-price
-                if not order_depth.buy_orders or not order_depth.sell_orders:
-                    continue
-
-                buys_sorted = sorted(list(order_depth.buy_orders.keys()))
-                sells_sorted = sorted(
-                    list(order_depth.sell_orders.keys()), reverse=True)
-
-                our_buy_price = 9999
-                our_sell_price = 10001
-
-                orders = []
-
-                for sell_order_price in sells_sorted:
-                    volume = order_depth.sell_orders[sell_order_price]
-                    # volume is negative
-                    if sell_order_price <= our_buy_price and current_position - volume <= limit:
-                        logger.print("BUY", str(-volume) +
-                                     "x", sell_order_price)
-                        orders.append(
-                            Order(product, sell_order_price, -volume))
-
-                for buy_order_price in buys_sorted:
-                    volume = order_depth.buy_orders[buy_order_price]
-                    # volume is positive
-                    if buy_order_price >= our_sell_price and current_position - volume >= -limit:
-                        logger.print("SELL", str(volume) +
-                                     "x", buy_order_price)
-                        orders.append(
-                            Order(product, buy_order_price, -volume))
-
-                traderData = ''
+            if product == PRODUCTS.RAINFOREST_RESIN:
+                orders = self.trade_rainforest_resin(state, order_depth)
                 result[product] = orders
-
             else:
-                current_position = state.position.get(product, 0)
-
-                # We need both buy_orders and sell_orders to determine a mid-price
-                if not order_depth.buy_orders or not order_depth.sell_orders:
-                    continue
-
-                buy_orders_sorted = sorted(
-                    list(order_depth.buy_orders.keys()))
-                sell_orders_sorted = sorted(
-                    list(order_depth.sell_orders.keys()))
-
-                expected_price = self.calculate_expected_price(
-                    order_depth=order_depth)
-                orders = []
-
-                # you have some statistical understanding of the expected price that is changing over time
-                # as that statical price changes over time we will then buy opportunistically any products that may be far below what we potentially percieve the market value
-                for sell_order_price in sell_orders_sorted:
-                    # volume is negative as it is a sell order
-                    volume = order_depth.sell_orders[sell_order_price]
-                    if sell_order_price < expected_price and current_position - volume <= limit:
-                        logger.print("BUY", str(-volume) +
-                                     "x", sell_order_price)
-                        purchase_history.add_purchase(
-                            product=product, price=sell_order_price, quantity=-volume)
-                        orders.append(
-                            Order(product, sell_order_price, -volume))
-
-                # This would be a ford fulkerson matching algorithm type approach if we didn't run these together
-
-                if product in purchase_history.purchases:
-                    # Get list of purchase prices and buy orders once
-                    purchase_prices = sorted(
-                        purchase_history.purchases[product].keys())
-                    buy_prices = sorted(buy_orders_sorted)
-
-                    # Track current position as we go
-                    available_position = current_position
-
-                    i = 0  # Purchase price index
-                    j = 0  # Buy order price index
-
-                    # Process while we have both purchases and buy orders to compare
-                    while i < len(purchase_prices) and j < len(buy_prices):
-                        purchase_price = purchase_prices[i]
-                        buy_price = buy_prices[j]
-
-                        # Only sell if we can make a profit
-                        if buy_price > purchase_price:
-                            # Get available quantity at this purchase price
-                            purchase_qty = purchase_history.purchases[product][purchase_price]
-                            buy_qty = order_depth.buy_orders[buy_price]
-
-                            # Calculate how much we can sell
-                            sell_qty = min(purchase_qty, buy_qty)
-
-                            # Check position limits
-                            if available_position - sell_qty >= -limit:
-                                # Execute the trade
-                                logger.print("SELL", f"{sell_qty}x", buy_price)
-                                orders.append(
-                                    Order(product, buy_price, -sell_qty))
-
-                                # Update purchase history and position
-                                purchase_history.remove_purchases(
-                                    product=product,
-                                    og_purchase_price=purchase_price,
-                                    quantity=sell_qty
-                                )
-                                available_position -= sell_qty
-
-                                # Update quantities
-                                order_depth.buy_orders[buy_price] -= sell_qty
-
-                                # Move to next buy order if fully filled
-                                if order_depth.buy_orders[buy_price] == 0:
-                                    j += 1
-                                # Move to next purchase price if fully sold
-
-                                if product not in purchase_history.purchases:
-                                    break
-
-                                if purchase_price not in purchase_history.purchases[product]:
-                                    i += 1
-
-                                if product in purchase_history.purchases and purchase_price in purchase_history.purchases[product] and purchase_history.purchases[product][purchase_price] == 0:
-                                    i += 1
-
-                            else:
-                                # Hit position limit
-                                break
-                        else:
-                            # Current buy price not profitable, try next one
-                            j += 1
-
-                traderData = purchase_history.to_json_string()
+                orders = self.trade_other_products(
+                    state, order_depth, product, purchase_history)
                 result[product] = orders
 
         # No conversions in this example
         conversions = 0
 
+        traderDataObject.purchase_history = purchase_history
+        traderData = traderDataObject.to_json_string()
+        logger.flush(state, result, conversions, traderData)
         return result, conversions, traderData
+
+    def trade_rainforest_resin(self, state: TradingState, order_depth: OrderDepth) -> List[Order]:
+        current_position = state.position.get(PRODUCTS.RAINFOREST_RESIN, 0)
+        limit = self.LIMITS[PRODUCTS.RAINFOREST_RESIN]
+
+        # We need both buy_orders and sell_orders to determine a mid-price
+        if not order_depth.buy_orders or not order_depth.sell_orders:
+            return []
+
+        buys_sorted = sorted(list(order_depth.buy_orders.keys()))
+        sells_sorted = sorted(
+            list(order_depth.sell_orders.keys()), reverse=True)
+
+        our_buy_price = 9999
+        our_sell_price = 10001
+
+        orders = []
+
+        for sell_order_price in sells_sorted:
+            volume = order_depth.sell_orders[sell_order_price]
+            # volume is negative
+            if sell_order_price <= our_buy_price and current_position - volume <= limit:
+                logger.print("BUY", str(-volume) + "x", sell_order_price)
+                orders.append(Order(PRODUCTS.RAINFOREST_RESIN,
+                              sell_order_price, -volume))
+
+        for buy_order_price in buys_sorted:
+            volume = order_depth.buy_orders[buy_order_price]
+            # volume is positive
+            if buy_order_price >= our_sell_price and current_position - volume >= -limit:
+                logger.print("SELL", str(volume) + "x", buy_order_price)
+                orders.append(Order(PRODUCTS.RAINFOREST_RESIN,
+                              buy_order_price, -volume))
+
+        return orders
+
+    def trade_other_products(self, state: TradingState, order_depth: OrderDepth, product: str, purchase_history: PurchaseHistory) -> List[Order]:
+        current_position = state.position.get(product, 0)
+        limit = self.LIMITS[product]
+
+        # We need both buy_orders and sell_orders to determine a mid-price
+        if not order_depth.buy_orders or not order_depth.sell_orders:
+            return []
+
+        buy_orders_sorted = sorted(list(order_depth.buy_orders.keys()))
+        sell_orders_sorted = sorted(list(order_depth.sell_orders.keys()))
+
+        expected_price = self.calculate_expected_price(order_depth=order_depth)
+        orders = []
+
+        # Buy orders
+        for sell_order_price in sell_orders_sorted:
+            volume = order_depth.sell_orders[sell_order_price]
+            if sell_order_price < expected_price and current_position - volume <= limit:
+                logger.print("BUY", str(-volume) + "x", sell_order_price)
+                purchase_history.add_purchase(
+                    product=product, price=sell_order_price, quantity=-volume)
+                orders.append(Order(product, sell_order_price, -volume))
+
+        # Sell orders
+        if product in purchase_history.purchases:
+            orders.extend(self.process_sell_orders(
+                product, order_depth, purchase_history, current_position))
+
+        return orders
+
+    def process_sell_orders(self, product: str, order_depth: OrderDepth, purchase_history: PurchaseHistory, current_position: int) -> List[Order]:
+        orders = []
+        purchase_prices = sorted(purchase_history.purchases[product].keys())
+        buy_prices = sorted(list(order_depth.buy_orders.keys()))
+        limit = self.LIMITS[product]
+
+        available_position = current_position
+        i = 0  # Purchase price index
+        j = 0  # Buy order price index
+
+        while i < len(purchase_prices) and j < len(buy_prices):
+            purchase_price = purchase_prices[i]
+            buy_price = buy_prices[j]
+
+            if buy_price > purchase_price:
+                purchase_qty = purchase_history.purchases[product][purchase_price]
+                buy_qty = order_depth.buy_orders[buy_price]
+                sell_qty = min(purchase_qty, buy_qty)
+
+                if available_position - sell_qty >= -limit:
+                    logger.print("SELL", f"{sell_qty}x", buy_price)
+                    orders.append(Order(product, buy_price, -sell_qty))
+
+                    purchase_history.remove_purchases(
+                        product=product,
+                        og_purchase_price=purchase_price,
+                        quantity=sell_qty
+                    )
+                    available_position -= sell_qty
+                    order_depth.buy_orders[buy_price] -= sell_qty
+
+                    if order_depth.buy_orders[buy_price] == 0:
+                        j += 1
+
+                    if product not in purchase_history.purchases:
+                        break
+
+                    if purchase_price not in purchase_history.purchases[product]:
+                        i += 1
+
+                    if product in purchase_history.purchases and purchase_price in purchase_history.purchases[product] and purchase_history.purchases[product][purchase_price] == 0:
+                        i += 1
+                else:
+                    break
+            else:
+                j += 1
+
+        return orders
 
     def mid_price(self, order_depth: OrderDepth) -> float:
         buy_orders = order_depth.buy_orders
@@ -220,52 +265,6 @@ class Trader:
 
         return sum / count
 
-
-class PurchaseHistory:
-    def __init__(self) -> None:
-        self.purchases: Dict[str, Dict[int, int]] = {}
-
-    def add_purchase(self, product: str, price: int, quantity: int) -> None:
-        if product not in self.purchases:
-            self.purchases[product] = {}
-
-        if price not in self.purchases[product]:
-            self.purchases[product][price] = quantity
-        else:
-            self.purchases[product][price] += quantity
-
-    def remove_purchases(self, product: str, og_purchase_price: int, quantity: int) -> None:
-        if product not in self.purchases:
-            raise ValueError('product not in purchase history')
-
-        if og_purchase_price not in self.purchases[product]:
-            raise ValueError('purchase price not found in history')
-
-        if self.purchases[product][og_purchase_price] < quantity:
-            raise ValueError('not enough quantity at that price to remove')
-
-        self.purchases[product][og_purchase_price] -= quantity
-
-        if self.purchases[product][og_purchase_price] == 0:
-            del self.purchases[product][og_purchase_price]
-
-        if not self.purchases[product]:
-            del self.purchases[product]
-
-    def to_json_string(self):
-        return json.dumps({"purchases": self.purchases})
-
-    @classmethod
-    def from_json_string(cls, json_string):
-        data = json.loads(json_string)
-        ph = cls()
-        # Convert string keys and values back to integers during deserialization
-        ph.purchases = {
-            product: {int(price): int(quantity)
-                      for price, quantity in prices.items()}
-            for product, prices in data.get("purchases", {}).items()
-        }
-        return ph
 
 
 class Logger:
