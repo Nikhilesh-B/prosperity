@@ -6,7 +6,6 @@ LIMIT_RAINFOREST_RESIN = 50
 LIMIT_KELP = 50
 LIMIT_SQUID_INK = 50
 
-
 class Trader:
     def run(self, state: TradingState) -> Tuple[Dict[str, List[Order]], int, str]:
         """
@@ -16,6 +15,13 @@ class Trader:
 
         # Iterate over all the keys (the available products) contained in the order dephts
         result: Dict[str, List[Order]] = {}
+
+
+        if not state.traderData:
+            purchase_history = PurchaseHistory.from_json_string('{}')
+        else:
+            purchase_history = PurchaseHistory.from_json_string(state.traderData)
+
         for product, order_depth in state.order_depths.items():
             # Identify an absolute inventory limit for this product
 
@@ -29,7 +35,6 @@ class Trader:
                 limit = LIMIT_SQUID_INK
                 continue
             else:
-                # If some other product appears, skip for now
                 limit = 0
 
             current_position = state.position.get(product, 0)
@@ -37,11 +42,6 @@ class Trader:
             # We need both buy_orders and sell_orders to determine a mid-price
             if not order_depth.buy_orders or not order_depth.sell_orders:
                 continue
-
-            if not state.traderData:
-                ph = PurchaseHistory.from_json_string('{}')
-            else:
-                ph = PurchaseHistory.from_json_string(state.traderData)
 
             buy_orders_sorted = sorted(
                 list(order_depth.buy_orders.keys()))
@@ -60,16 +60,16 @@ class Trader:
                 if sell_order_price < expected_price and current_position - volume <= limit:
                     logger.print("BUY", str(-volume) +
                                  "x", sell_order_price)
-                    ph.add_purchase(
-                        symbol=product, price=sell_order_price, quantity=-volume)
+                    purchase_history.add_purchase(
+                        product=product, symbol=product, price=sell_order_price, quantity=-volume)
                     orders.append(
                         Order(product, sell_order_price, -volume))
 
             # This would be a ford fulkerson matching algorithm type approach if we didn't run these together
 
-            if product in ph.purchases: 
+            if product in purchase_history.purchases: 
                 # Sort purchase history by price ascending
-                purchase_prices = sorted(ph.purchases[product].keys())
+                purchase_prices = sorted(purchase_history.purchases[product].keys())
                 purchase_idx = 0
                 buy_idx = 0
 
@@ -84,7 +84,7 @@ class Trader:
                     assert type(purchase_price) == int
 
                     if buy_price > purchase_price:
-                        purchase_quantity = ph.purchases[product][purchase_price]
+                        purchase_quantity = purchase_history.purchases[product][purchase_price]
                         buy_volume = order_depth.buy_orders[buy_price]
 
                         # Only proceed if we have inventory to sell
@@ -95,8 +95,8 @@ class Trader:
                             if current_position - sell_quantity >= -limit:
                                 logger.print("SELL", str(
                                     sell_quantity) + "x", buy_price)
-                                ph.remove_purchases(
-                                    product, purchase_price, sell_quantity)
+                                purchase_history.remove_purchases(
+                                    product=product, symbol=product, og_purchase_price=purchase_price, quantity=sell_quantity)
                                 orders.append(
                                     Order(product, buy_price, -sell_quantity))
 
@@ -107,7 +107,7 @@ class Trader:
                                 if order_depth.buy_orders[buy_price] == 0:
                                     buy_idx += 1
                                 # If we sold all inventory at this price, move to next purchase price
-                                if ph.purchases[product][purchase_price] == 0:
+                                if purchase_history.purchases[product][purchase_price] == 0:
                                     purchase_idx += 1
                             else:
                                 # Hit position limit, stop selling
@@ -119,8 +119,8 @@ class Trader:
                         # Current buy price not profitable, move to next buy order
                         buy_idx += 1
 
-            traderData = ph.to_json_string()
-            result[product] = orders
+        traderData = purchase_history.to_json_string()
+        result[product] = orders
 
         # No conversions in this example
         conversions = 0
