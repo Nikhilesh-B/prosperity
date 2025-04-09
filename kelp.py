@@ -176,8 +176,29 @@ class Trader:
 
         # No conversions in this example
         conversions = 0
-        logger.flush(state, result, conversions, traderData)
+
         return result, conversions, traderData
+
+    def mid_price(self, order_depth: OrderDepth) -> float:
+        buy_orders = order_depth.buy_orders
+        sell_orders = order_depth.sell_orders
+
+        return (max(buy_orders.keys()) + min(sell_orders.keys())) / 2
+
+    def weighted_price(self, order_depth: OrderDepth) -> float:
+        buy_orders = order_depth.buy_orders
+        sell_orders = order_depth.sell_orders
+
+        best_buy = max(buy_orders.keys())
+        best_sell = min(sell_orders.keys())
+
+        best_buy_volume = buy_orders[best_buy]
+        best_sell_volume = abs(sell_orders[best_sell])
+
+        Wa = best_buy_volume / (best_buy_volume + best_sell_volume)
+        Wb = best_sell_volume / (best_buy_volume + best_sell_volume)
+
+        return Wa * best_sell + Wb * best_buy
 
     def calculate_expected_price(self, order_depth: OrderDepth) -> float:
         buy_orders = order_depth.buy_orders
