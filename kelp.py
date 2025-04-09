@@ -6,6 +6,7 @@ LIMIT_RAINFOREST_RESIN = 50
 LIMIT_KELP = 50
 LIMIT_SQUID_INK = 50
 
+
 class Trader:
     def run(self, state: TradingState) -> Tuple[Dict[str, List[Order]], int, str]:
         """
@@ -16,11 +17,11 @@ class Trader:
         # Iterate over all the keys (the available products) contained in the order dephts
         result: Dict[str, List[Order]] = {}
 
-
         if not state.traderData:
             purchase_history = PurchaseHistory.from_json_string('{}')
         else:
-            purchase_history = PurchaseHistory.from_json_string(state.traderData)
+            purchase_history = PurchaseHistory.from_json_string(
+                state.traderData)
 
         for product, order_depth in state.order_depths.items():
             # Identify an absolute inventory limit for this product
@@ -36,6 +37,7 @@ class Trader:
                 continue
             else:
                 limit = 0
+                continue
 
             current_position = state.position.get(product, 0)
 
@@ -61,70 +63,82 @@ class Trader:
                     logger.print("BUY", str(-volume) +
                                  "x", sell_order_price)
                     purchase_history.add_purchase(
-                        product=product, symbol=product, price=sell_order_price, quantity=-volume)
+                        product=product, price=sell_order_price, quantity=-volume)
                     orders.append(
                         Order(product, sell_order_price, -volume))
 
             # This would be a ford fulkerson matching algorithm type approach if we didn't run these together
 
-            if product in purchase_history.purchases: 
-                # Sort purchase history by price ascending
+            if product in purchase_history.purchases:
+                # Get list of purchase prices and buy orders once
                 purchase_prices = sorted(purchase_history.purchases[product].keys())
-                purchase_idx = 0
-                buy_idx = 0
-
-                # Two pointer approach to match purchases with current buy orders
-                while purchase_idx < len(purchase_prices) and buy_idx < len(buy_orders_sorted):
-                    purchase_price = int(purchase_prices[purchase_idx])
-                    buy_price = buy_orders_sorted[buy_idx]
-
-                    # Only sell if we would make a profit
-                    assert type(buy_price) == int
-                    print(purchase_prices)
-                    assert type(purchase_price) == int
-
+                buy_prices = sorted(buy_orders_sorted)
+                
+                # Track current position as we go
+                available_position = current_position
+                
+                i = 0  # Purchase price index
+                j = 0  # Buy order price index
+                
+                # Process while we have both purchases and buy orders to compare
+                while i < len(purchase_prices) and j < len(buy_prices):
+                    purchase_price = purchase_prices[i]
+                    buy_price = buy_prices[j]
+                    
+                    # Only sell if we can make a profit
                     if buy_price > purchase_price:
-                        purchase_quantity = purchase_history.purchases[product][purchase_price]
-                        buy_volume = order_depth.buy_orders[buy_price]
+                        # Get available quantity at this purchase price
+                        purchase_qty = purchase_history.purchases[product][purchase_price]
+                        buy_qty = order_depth.buy_orders[buy_price]
+                        
+                        # Calculate how much we can sell
+                        sell_qty = min(purchase_qty, buy_qty)
+                        
+                        # Check position limits
+                        if available_position - sell_qty >= -limit:
+                            # Execute the trade
+                            logger.print("SELL", f"{sell_qty}x", buy_price)
+                            orders.append(Order(product, buy_price, -sell_qty))
+                            
+                            # Update purchase history and position
+                            purchase_history.remove_purchases(
+                                product=product,
+                                og_purchase_price=purchase_price,
+                                quantity=sell_qty
+                            )
+                            available_position -= sell_qty
+                            
+                            # Update quantities
+                            order_depth.buy_orders[buy_price] -= sell_qty
+                            
+                            # Move to next buy order if fully filled
+                            if order_depth.buy_orders[buy_price] == 0:
+                                j += 1
+                            # Move to next purchase price if fully sold
 
-                        # Only proceed if we have inventory to sell
-                        if purchase_quantity > 0:
-                            # Sell the minimum of what they want to buy and what we have
-                            sell_quantity = min(buy_volume, purchase_quantity)
 
-                            if current_position - sell_quantity >= -limit:
-                                logger.print("SELL", str(
-                                    sell_quantity) + "x", buy_price)
-                                purchase_history.remove_purchases(
-                                    product=product, symbol=product, og_purchase_price=purchase_price, quantity=sell_quantity)
-                                orders.append(
-                                    Order(product, buy_price, -sell_quantity))
-
-                                # Update the remaining volume for this buy order
-                                order_depth.buy_orders[buy_price] -= sell_quantity
-
-                                # If buy order is fully filled, move to next one
-                                if order_depth.buy_orders[buy_price] == 0:
-                                    buy_idx += 1
-                                # If we sold all inventory at this price, move to next purchase price
-                                if purchase_history.purchases[product][purchase_price] == 0:
-                                    purchase_idx += 1
-                            else:
-                                # Hit position limit, stop selling
+                            if product not in purchase_history.purchases:
                                 break
+
+                            if purchase_price not in purchase_history.purchases[product]:
+                                i += 1
+
+                            if product in purchase_history.purchases and purchase_price in purchase_history.purchases[product] and purchase_history.purchases[product][purchase_price] == 0:
+                                i += 1
+                            
                         else:
-                            # No inventory at this price, move to next purchase price
-                            purchase_idx += 1
+                            # Hit position limit
+                            break
                     else:
-                        # Current buy price not profitable, move to next buy order
-                        buy_idx += 1
+                        # Current buy price not profitable, try next one
+                        j += 1
 
         traderData = purchase_history.to_json_string()
         result[product] = orders
 
         # No conversions in this example
         conversions = 0
-        logger.flush(state, result, conversions, traderData)
+        # logger.flush(state, result, conversions, traderData)
         return result, conversions, traderData
 
     def calculate_expected_price(self, order_depth: OrderDepth) -> float:
@@ -150,54 +164,48 @@ class Trader:
 
 class PurchaseHistory:
     def __init__(self) -> None:
-        self.purchases: Dict[Dict[str, Dict[int, int]]] = {}
+        self.purchases: Dict[str, Dict[int, int]] = {}
 
-    def add_purchase(self, product: str, symbol: str, price: int, quantity: int) -> None:
+    def add_purchase(self, product: str, price: int, quantity: int) -> None:
         if product not in self.purchases:
             self.purchases[product] = {}
 
-        if symbol not in self.purchases[product]:
-            self.purchases[product][symbol] = {}
-
-        if price not in self.purchases[product][symbol]:
-            self.purchases[product][symbol][price] = quantity
+        if price not in self.purchases[product]:
+            self.purchases[product][price] = quantity
         else:
-            self.purchases[product][symbol][price] += quantity
+            self.purchases[product][price] += quantity
 
-    def remove_purchases(self, product: str, symbol: str, og_purchase_price: int, quantity: int) -> None:
+    def remove_purchases(self, product: str, og_purchase_price: int, quantity: int) -> None:
         if product not in self.purchases:
             raise ValueError('product not in purchase history')
 
-        if symbol not in self.purchases:
-            raise ValueError('symbol not in purchase history')
-
-        if og_purchase_price not in self.purchases[symbol]:
+        if og_purchase_price not in self.purchases[product]:
             raise ValueError('purchase price not found in history')
 
-        if self.purchases[product][symbol][og_purchase_price] < quantity:
+        if self.purchases[product][og_purchase_price] < quantity:
             raise ValueError('not enough quantity at that price to remove')
 
-        self.purchases[product][symbol][og_purchase_price] -= quantity
+        self.purchases[product][og_purchase_price] -= quantity
 
-        if self.purchases[product][symbol][og_purchase_price] == 0:
-            del self.purchases[product][symbol][og_purchase_price]
-
-        if not self.purchases[product][symbol]:
-            del self.purchases[product][symbol]
+        if self.purchases[product][og_purchase_price] == 0:
+            del self.purchases[product][og_purchase_price]
 
         if not self.purchases[product]:
             del self.purchases[product]
 
-
     def to_json_string(self):
         return json.dumps({"purchases": self.purchases})
 
-    # Create from JSON string (class method)
     @classmethod
     def from_json_string(cls, json_string):
         data = json.loads(json_string)
         ph = cls()
-        ph.purchases = data.get("purchases", {})
+        # Convert string keys and values back to integers during deserialization
+        ph.purchases = {
+            product: {int(price): int(quantity)
+                      for price, quantity in prices.items()}
+            for product, prices in data.get("purchases", {}).items()
+        }
         return ph
 
 
