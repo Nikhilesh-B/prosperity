@@ -1,6 +1,7 @@
 from typing import Dict, List, Tuple, Any
 from datamodel import OrderDepth, TradingState, Order, Listing, Observation, ProsperityEncoder, Symbol, Trade
 import jsonpickle
+import json
 
 LIMIT_RAINFOREST_RESIN = 50
 LIMIT_KELP = 50
@@ -67,7 +68,18 @@ class TraderDataObject:
     def from_json_string(cls, json_string):
         if not json_string:
             return cls()
-        return jsonpickle.decode(json_string)
+
+        obj = jsonpickle.decode(json_string)
+
+        # Convert string values back to integers in purchase_history
+        if hasattr(obj, 'purchase_history') and hasattr(obj.purchase_history, 'purchases'):
+            for product, price_dict in obj.purchase_history.purchases.items():
+                # Convert price keys from strings to integers
+                price_dict_int = {int(price): int(quantity)
+                                  for price, quantity in price_dict.items()}
+                obj.purchase_history.purchases[product] = price_dict_int
+
+        return obj
 
 
 class Trader:
@@ -84,7 +96,8 @@ class Trader:
         and outputs a list of orders to be sent
         """
         if state.traderData:
-            traderDataObject = TraderDataObject.from_json_string(state.traderData)
+            traderDataObject = TraderDataObject.from_json_string(
+                state.traderData)
         else:
             traderDataObject = TraderDataObject()
 
@@ -264,7 +277,6 @@ class Trader:
             return 0
 
         return sum / count
-
 
 
 class Logger:
