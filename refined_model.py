@@ -111,7 +111,6 @@ class Trader:
                 orders = self.trade_rainforest_resin(state, order_depth)
                 result[product] = orders
             else:
-                continue
                 orders = self.trade_other_products(
                     state, order_depth, product, purchase_history)
                 result[product] = orders

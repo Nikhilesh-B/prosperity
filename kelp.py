@@ -31,8 +31,10 @@ class Trader:
                 limit = LIMIT_RAINFOREST_RESIN
             elif product == "KELP":
                 limit = LIMIT_KELP
+                continue
             elif product == "SQUID_INK":
                 limit = LIMIT_SQUID_INK
+                continue
             else:
                 limit = 0
 
@@ -177,6 +179,7 @@ class Trader:
         # No conversions in this example
         conversions = 0
 
+        logger.flush(state, result, conversions, traderData)
         return result, conversions, traderData
 
     def mid_price(self, order_depth: OrderDepth) -> float:
